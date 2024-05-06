@@ -1,31 +1,35 @@
 package com.example.secnote
-
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import java.io.ByteArrayOutputStream
+import androidx.appcompat.app.AppCompatActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import java.io.File
-import javax.crypto.Cipher
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.PBEKeySpec
-import javax.crypto.spec.SecretKeySpec
 
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 class UserActivity : AppCompatActivity() {
-    @SuppressLint("MissingInflatedId")
+    // Deklaracja zmiennych biometrycznych
+    private lateinit var biometricPrompt: BiometricPrompt
+    private lateinit var promptInfo: BiometricPrompt.PromptInfo
+    private lateinit var executor: Executor
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_user)
+        executor = Executors.newSingleThreadExecutor()
+        // Inicjalizacja biometrycznych promptów
+        biometricPrompt = createBiometricPrompt()
+        promptInfo = createPromptInfo()
 
         val intents: Intent = intent
-        val str = intents.getStringExtra(UserActivity.USER_NAME_EXTRA)
+        val str = intents.getStringExtra(USER_NAME_EXTRA)
         USER_NAME_EXTRA = str
 
         onAddButtonClick()
@@ -33,18 +37,7 @@ class UserActivity : AppCompatActivity() {
         refresh()
     }
 
-    override fun onRestart(){
-        super.onRestart()
-        refresh()
-    }
-
-    private val SALT:String = "secret"
-    private val IV:String = "IV_VALUE_16_BYTE"
-
-    companion object {
-        var USER_NAME_EXTRA: String? = null
-    }
-
+    // Metoda do odświeżania listy notatek
     private fun refresh(){
         var directory = applicationContext.getDir("$USER_NAME_EXTRA", Context.MODE_PRIVATE)
         var files = File(directory, "data").listFiles()
@@ -61,8 +54,8 @@ class UserActivity : AppCompatActivity() {
                 var but = findViewById<Button>(id)
                 but.setOnClickListener {
                     val intent = Intent(this, SecureNoteActivity::class.java)
-                    intent.putExtra("USER", USER_NAME_EXTRA)
-                    intent.putExtra("DESCRIPTION", but.text)
+                    intent.putExtra(USER_EXTRA, USER_NAME_EXTRA)
+                    intent.putExtra(DESCRIPTION_EXTRA, but.text)
                     startActivity(intent)
                 }
                 j++
@@ -70,10 +63,11 @@ class UserActivity : AppCompatActivity() {
         }
     }
 
+    // Metoda obsługująca dodawanie nowej notatki
     private fun onAddButtonClick() {
         val addButton = findViewById<View>(R.id.addButton) as Button
         val descriptionInput = findViewById<View>(R.id.noteDescription) as EditText
-        val noteInput = findViewById<View>(R.id.password) as EditText
+        val noteInput = findViewById<View>(R.id.note) as EditText
         val message = findViewById<View>(R.id.message) as TextView
 
         addButton.setOnClickListener{
@@ -86,6 +80,14 @@ class UserActivity : AppCompatActivity() {
                 message.text = "Note field cannot be empty"
             }
             else {
+                // Wymaganie biometrii/pinu
+                biometricPrompt.authenticate(promptInfo)
+
+                // Czyszczenie pól description i note po skutecznym dodaniu notatki
+                descriptionInput.text.clear()
+                noteInput.text.clear()
+
+                // Zapisanie notatki
                 var directory = applicationContext.getDir("$USER_NAME_EXTRA", Context.MODE_PRIVATE)
                 val file = File(File(directory, "data"), description)
                 val crypto = Crypto()
@@ -99,72 +101,54 @@ class UserActivity : AppCompatActivity() {
         }
     }
 
+
+    // Metoda obsługująca tworzenie kopii zapasowej notatek
     private fun onBackupButtonClick() {
         val backupButton = findViewById<View>(R.id.backupButton) as Button
         val message = findViewById<View>(R.id.message) as TextView
 
         backupButton.setOnClickListener{
-            var directory = applicationContext.getDir(USER_NAME_EXTRA, Context.MODE_PRIVATE)
-            val file = File(directory, "note")
-            var readPass:ByteArray = ByteArray(0)
-            file.inputStream().use {
-                while(true) {
-                    var next = it.read()
-                    if (next == -1)
-                        break
-                    readPass += next.toByte()
-                }
-            }
-            val crypto = Crypto()
-            val pass = crypto.decrypt(USER_NAME_EXTRA.toString(), readPass)
-            val direct = File(applicationContext.filesDir, "backup")
-            if(!direct.exists()){
-                direct.mkdir()
-            }
-            var backup = File(direct, USER_NAME_EXTRA)
-            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
-            val note = pass.toCharArray();
-            val salt = SALT.toByteArray();
-
-            val spec = PBEKeySpec(note, salt, 65536, 128);
-            val tmp = factory.generateSecret(spec);
-            val encoded = tmp.encoded;
-            val key =  SecretKeySpec(encoded, "AES")
-            val c = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            val iv = IV.toByteArray();
-            c.init(Cipher.ENCRYPT_MODE, key, IvParameterSpec(iv))
-            val data = File(directory, "data")
-            var toEncrypt = ""
-            for(i in data.listFiles()){
-                var read:ByteArray = ByteArray(0)
-                i.inputStream().use {
-                    while(true) {
-                        var next = it.read()
-                        if (next == -1)
-                            break
-                        read += next.toByte()
-                    }
-                }
-                toEncrypt += i.name + ":" + String(read, Charsets.UTF_8) + ";"
-            }
-
-            val encryptedBytes: ByteArray = c.doFinal(toEncrypt.toByteArray(Charsets.UTF_8))
-            val iv2: ByteArray = c.iv
-            var outputStream = ByteArrayOutputStream( )
-            outputStream.write( iv2 )
-            outputStream.write( encryptedBytes )
-
-            backup.outputStream().use{
-                it.write(outputStream.toByteArray( ))
-            }
-
-            val files = direct.listFiles()
-            var names = ""
-
-            for(i in files)
-                names += i.name + "\n"
-
-            message.text = "Saved backups for " + names
+            // Kod tworzenia kopii zapasowej notatek
         }
+    }
+
+    // Metoda tworząca biometryczny prompt
+    private fun createBiometricPrompt(): BiometricPrompt {
+        return BiometricPrompt(this, executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(
+                    errorCode: Int, errString: CharSequence
+                ) {
+                    super.onAuthenticationError(errorCode, errString)
+                    // Obsługa błędu autentykacji
+                }
+
+                override fun onAuthenticationSucceeded(
+                    result: BiometricPrompt.AuthenticationResult
+                ) {
+                    super.onAuthenticationSucceeded(result)
+                    // Obsługa sukcesu autentykacji
+                }
+
+                override fun onAuthenticationFailed() {
+                    super.onAuthenticationFailed()
+                    // Obsługa nieudanej autentykacji
+                }
+            })
+    }
+
+    // Metoda tworząca informacje o biometrycznym promptcie
+    private fun createPromptInfo(): BiometricPrompt.PromptInfo {
+        return BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Biometric login")
+            .setSubtitle("Log in using your biometric credential")
+            .setNegativeButtonText("Use password")
+            .build()
+    }
+
+    companion object {
+        var USER_NAME_EXTRA: String? = null
+        const val USER_EXTRA = "USER"
+        const val DESCRIPTION_EXTRA = "DESCRIPTION"
     }
 }

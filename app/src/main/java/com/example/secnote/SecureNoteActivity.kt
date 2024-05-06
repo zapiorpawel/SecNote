@@ -28,7 +28,7 @@ class SecureNoteActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_secure_note)
 
-        noteOutput = findViewById(R.id.password)
+        noteOutput = findViewById(R.id.note)
         val message = findViewById<TextView>(R.id.message)
         val intents: Intent = intent
         val user = intents.getStringExtra("USER")
@@ -174,7 +174,7 @@ class SecureNoteActivity : AppCompatActivity() {
         }
         isNoteVisible = !isNoteVisible
         val showButton = findViewById<View>(R.id.showButton) as Button
-        val passwordOutput = findViewById<View>(R.id.password) as EditText
+        val passwordOutput = findViewById<View>(R.id.note) as EditText
         showButton.setOnClickListener {
             if (PASS) {
                 passwordOutput.transformationMethod = PasswordTransformationMethod.getInstance()

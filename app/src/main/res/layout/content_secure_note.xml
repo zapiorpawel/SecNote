@@ -34,7 +34,7 @@
                 android:textStyle="bold" />
 
             <EditText
-                android:id="@+id/password"
+                android:id="@+id/note"
                 android:layout_width="fill_parent"
                 android:layout_height="150dp"
                 android:layout_marginLeft="30dp"

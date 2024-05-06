@@ -25,7 +25,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onRegisterButtonClick() {
         val usernameInput = findViewById<View>(R.id.username) as EditText
-        val passwordInput = findViewById<View>(R.id.password) as EditText
+        val passwordInput = findViewById<View>(R.id.note) as EditText
         val registerButton = findViewById<View>(R.id.registerButton) as Button
         val messageOutput = findViewById<View>(R.id.message) as TextView
 
@@ -68,7 +68,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onLoginButtonClick() {
         val usernameInput = findViewById<View>(R.id.username) as EditText
-        val passwordInput = findViewById<View>(R.id.password) as EditText
+        val passwordInput = findViewById<View>(R.id.note) as EditText
         val loginButton = findViewById<View>(R.id.loginButton) as Button
         val messageOutput = findViewById<View>(R.id.message) as TextView
 
