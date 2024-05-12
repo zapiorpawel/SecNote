@@ -1,5 +1,6 @@
 package com.example.secnote
 import android.annotation.SuppressLint
+
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -8,11 +9,12 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import java.io.File
-
+import android.app.Activity
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 class UserActivity : AppCompatActivity() {
@@ -20,6 +22,15 @@ class UserActivity : AppCompatActivity() {
     private lateinit var biometricPrompt: BiometricPrompt
     private lateinit var promptInfo: BiometricPrompt.PromptInfo
     private lateinit var executor: Executor
+    private lateinit var passwordInput: EditText
+    private lateinit var exportButton: Button
+    private lateinit var importButton: Button
+    private lateinit var exportPassword: String
+    private lateinit var message: TextView
+    private var description: String? = null
+    private var user: String? = null
+    private var encryptedData: ByteArray? = null
+    private lateinit var crypto: Crypto
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_user)
@@ -34,17 +45,19 @@ class UserActivity : AppCompatActivity() {
 
         onAddButtonClick()
         onBackupButtonClick()
+        onExportButtonClick()
+        onImportButtonClick()
         refresh()
     }
 
     // Metoda do odświeżania listy notatek
-    private fun refresh(){
+    private fun refresh() {
         var directory = applicationContext.getDir("$USER_NAME_EXTRA", Context.MODE_PRIVATE)
         var files = File(directory, "data").listFiles()
         val notesSaved = findViewById<LinearLayout>(R.id.notesSaved)
         notesSaved.removeAllViews()
         var j = 1
-        if(files != null) {
+        if (files != null) {
             for (i in files) {
                 var button = Button(this)
                 button.text = i.name
@@ -70,16 +83,14 @@ class UserActivity : AppCompatActivity() {
         val noteInput = findViewById<View>(R.id.note) as EditText
         val message = findViewById<View>(R.id.message) as TextView
 
-        addButton.setOnClickListener{
+        addButton.setOnClickListener {
             val description = descriptionInput.text.toString()
             val note = noteInput.text.toString()
-            if(description == ""){
+            if (description == "") {
                 message.text = "Please add a title"
-            }
-            else if(note == ""){
+            } else if (note == "") {
                 message.text = "Note field cannot be empty"
-            }
-            else {
+            } else {
                 // Wymaganie biometrii/pinu
                 biometricPrompt.authenticate(promptInfo)
 
@@ -107,7 +118,7 @@ class UserActivity : AppCompatActivity() {
         val backupButton = findViewById<View>(R.id.backupButton) as Button
         val message = findViewById<View>(R.id.message) as TextView
 
-        backupButton.setOnClickListener{
+        backupButton.setOnClickListener {
             // Kod tworzenia kopii zapasowej notatek
         }
     }
@@ -146,9 +157,98 @@ class UserActivity : AppCompatActivity() {
             .build()
     }
 
+    private fun onExportButtonClick() {
+        val exportButton = findViewById<Button>(R.id.exportButton)
+        val passwordInput = findViewById<EditText>(R.id.passwordInput)
+
+        exportButton.setOnClickListener {
+            val exportPassword = passwordInput.text.toString()
+
+            if (exportPassword.isNotEmpty()) {
+                val directory = applicationContext.getExternalFilesDir(null)
+                val file = File(directory, "encrypted_data.txt")
+
+                if (file.exists()) {
+                    val dataToExport = file.readBytes() // Read data as ByteArray
+                    // Rest of your code for exporting
+                } else {
+                    Toast.makeText(this, "File does not exist", Toast.LENGTH_SHORT).show()
+                }
+
+                // Otwórz okno dialogowe wyboru pliku, aby wybrać lokalizację do zapisania zaszyfrowanego pliku
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_TITLE, "encrypted_data.txt")
+                }
+
+                startActivityForResult(intent, SecureNoteActivity.EXPORT_REQUEST_CODE)
+            } else {
+                // Obsłuż przypadek pustego hasła
+                Toast.makeText(this, "Please enter the export password", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+
+
+    private fun onImportButtonClick() {
+        val importButton = findViewById<Button>(R.id.importButton)
+        val passwordExport = findViewById<EditText>(R.id.passwordExport)
+
+        importButton.setOnClickListener {
+            val importPassword = passwordExport.text.toString()
+
+            if (importPassword.isNotEmpty()) {
+                // Otwórz okno dialogowe wyboru pliku, aby wybrać zaszyfrowany plik do importu
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                }
+
+                startActivityForResult(intent, SecureNoteActivity.IMPORT_REQUEST_CODE)
+            } else {
+                val message = findViewById<TextView>(R.id.message)
+                message.text = "Please enter the import password"
+            }
+        }
+    }
+
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode == Activity.RESULT_OK) {
+            when (requestCode) {
+                SecureNoteActivity.EXPORT_REQUEST_CODE -> {
+                    data?.data?.let { uri ->
+                        val outputStream = contentResolver.openOutputStream(uri)
+                        if (outputStream != null) {
+                            if (encryptedData != null) {
+                                outputStream.use { output ->
+                                    output.write(encryptedData) // Write the encrypted data to the file
+                                }
+                                Toast.makeText(this, "Export successful", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this, "Encrypted data is null", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(this, "Output stream is null", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                // Handle other request codes similarly
+            }
+        }
+    }
+
+
     companion object {
         var USER_NAME_EXTRA: String? = null
         const val USER_EXTRA = "USER"
         const val DESCRIPTION_EXTRA = "DESCRIPTION"
+        const val EXPORT_REQUEST_CODE = 1
+        const val IMPORT_REQUEST_CODE = 2
+        var PASS = false
+
     }
 }
