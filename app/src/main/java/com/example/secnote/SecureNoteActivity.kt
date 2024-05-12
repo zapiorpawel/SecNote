@@ -15,14 +15,31 @@ import androidx.biometric.BiometricPrompt
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executor
+import androidx.core.content.ContextCompat
+import android.app.Activity
+import android.widget.Toast
 
 class SecureNoteActivity : AppCompatActivity() {
+    private lateinit var message: TextView
     private lateinit var crypto: Crypto
     private lateinit var executor: Executor
     private lateinit var biometricPrompt: BiometricPrompt
     private lateinit var promptInfo: BiometricPrompt.PromptInfo
     private lateinit var noteOutput: EditText
+    private lateinit var passwordInput: EditText
+    private lateinit var exportButton: Button
+    private lateinit var importButton: Button
+    private lateinit var exportPassword: String
+    private var description: String? = null
+    private var user: String? = null
+    private var encryptedData: ByteArray? = null
     private var isNoteVisible: Boolean = false
+
+    companion object {
+        private const val EXPORT_REQUEST_CODE = 1
+        private const val IMPORT_REQUEST_CODE = 2
+        var PASS = false
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,7 +52,7 @@ class SecureNoteActivity : AppCompatActivity() {
         val description = intents.getStringExtra("DESCRIPTION")
 
         crypto = Crypto()
-        executor = applicationContext.mainExecutor
+        executor = ContextCompat.getMainExecutor(applicationContext)
         biometricPrompt = createBiometricPrompt()
         promptInfo = createPromptInfo()
 
@@ -45,10 +62,6 @@ class SecureNoteActivity : AppCompatActivity() {
         onDeleteButtonClick(user, description)
         hideNote()
         onShowButtonClick()
-    }
-
-    companion object {
-        var PASS = false
     }
 
     private fun loadData(user: String?, description: String?, errors: TextView) {
@@ -182,6 +195,90 @@ class SecureNoteActivity : AppCompatActivity() {
             } else {
                 passwordOutput.transformationMethod = HideReturnsTransformationMethod.getInstance()
                 PASS = true
+            }
+        }
+    }
+
+    private fun onExportButtonClick(user: String?, description: String?) {
+        val exportButton = findViewById<Button>(R.id.exportButton)
+        val passwordInput = findViewById<EditText>(R.id.passwordInput)
+
+        exportButton.setOnClickListener {
+            val exportPassword = passwordInput.text.toString()
+
+            if (exportPassword.isNotEmpty()) {
+                val directory = applicationContext.getDir(user, Context.MODE_PRIVATE)
+                val file = File(File(directory, "data"), description)
+                val dataToExport = file.readBytes() // Read data as ByteArray
+                val encryptedData =
+                    crypto.encrypt(exportPassword, dataToExport.toString(Charsets.UTF_8)) // Encrypt the ByteArray data
+
+                // Open file chooser dialog to select location for saving the encrypted file
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_TITLE, "${description}_encrypted.txt")
+                }
+
+                startActivityForResult(intent, EXPORT_REQUEST_CODE)
+            } else {
+                // Handle empty password case
+                Toast.makeText(this, "Please enter the export password", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun onImportButtonClick(user: String?, description: String?, message: TextView) {
+        val importButton = findViewById<Button>(R.id.importButton)
+        val passwordExport = findViewById<EditText>(R.id.passwordExport)
+
+        importButton.setOnClickListener {
+            val importPassword = passwordExport.text.toString()
+
+            if (importPassword.isNotEmpty()) {
+                // Open file chooser dialog to select the encrypted file to import
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                }
+
+                startActivityForResult(intent, IMPORT_REQUEST_CODE)
+            } else {
+                message.text = "Please enter the import password"
+            }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode == Activity.RESULT_OK) {
+            when (requestCode) {
+                EXPORT_REQUEST_CODE -> {
+                    data?.data?.let { uri ->
+                        val outputStream = contentResolver.openOutputStream(uri)
+                        outputStream?.use { output ->
+                            output.write(encryptedData) // Write the encrypted data to the file
+                        }
+                        Toast.makeText(this, "Export successful", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                IMPORT_REQUEST_CODE -> {
+                    data?.data?.let { uri ->
+                        val inputStream = contentResolver.openInputStream(uri)
+                        inputStream?.use { input ->
+                            val encryptedData =
+                                input.readBytes() // Read the encrypted data from the file
+                            val decryptedData =
+                                crypto.decrypt(exportPassword, encryptedData) // Decrypt the data
+                            val directory = applicationContext.getDir(user, Context.MODE_PRIVATE)
+                            val file = File(File(directory, "data"), description)
+
+                            file.writeBytes(decryptedData.toByteArray(Charsets.UTF_8)) // Write the decrypted data to the file
+                            message.text = "Import successful"
+                        }
+                    }
+                }
             }
         }
     }
