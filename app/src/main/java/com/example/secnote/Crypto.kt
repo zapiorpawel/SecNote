@@ -8,8 +8,45 @@ import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.spec.IvParameterSpec
-
+import java.nio.charset.StandardCharsets
+import javax.crypto.SecretKey
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 public class Crypto {
+
+    private val transformation = "AES/GCM/NoPadding"
+    private val keySize = 256
+    private val iterationCount = 10000
+    private val salt = "some_random_salt".toByteArray()
+    private val ivSize = 12
+
+    fun encryptWithPassword(data: String, password: String): ByteArray {
+        val cipher = Cipher.getInstance(transformation)
+        val key = generateKeyFromPassword(password)
+        cipher.init(Cipher.ENCRYPT_MODE, key)
+        val iv = cipher.iv
+        val encryptedData = cipher.doFinal(data.toByteArray(StandardCharsets.UTF_8))
+        return iv + encryptedData
+    }
+
+    fun decryptWithPassword(data: ByteArray, password: String): String {
+        val cipher = Cipher.getInstance(transformation)
+        val iv = data.copyOfRange(0, ivSize)
+        val encryptedData = data.copyOfRange(ivSize, data.size)
+        val key = generateKeyFromPassword(password)
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
+        val decryptedData = cipher.doFinal(encryptedData)
+        return String(decryptedData, StandardCharsets.UTF_8)
+    }
+
+    private fun generateKeyFromPassword(password: String): SecretKey {
+        val keySpec = PBEKeySpec(password.toCharArray(), salt, iterationCount, keySize)
+        val keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val keyBytes = keyFactory.generateSecret(keySpec).encoded
+        return SecretKeySpec(keyBytes, "AES")
+    }
     fun keyGen(keyAlias:String){
         val keyGenParameterSpec = KeyGenParameterSpec.Builder(
             keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT

@@ -1,5 +1,4 @@
 package com.example.secnote
-import android.annotation.SuppressLint
 
 import android.content.Context
 import android.content.Intent
@@ -11,14 +10,13 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import java.io.File
 import android.app.Activity
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+
 class UserActivity : AppCompatActivity() {
-    // Deklaracja zmiennych biometrycznych
     private lateinit var biometricPrompt: BiometricPrompt
     private lateinit var promptInfo: BiometricPrompt.PromptInfo
     private lateinit var executor: Executor
@@ -31,11 +29,19 @@ class UserActivity : AppCompatActivity() {
     private var user: String? = null
     private var encryptedData: ByteArray? = null
     private lateinit var crypto: Crypto
+
+    companion object {
+        var USER_NAME_EXTRA: String? = null
+        const val USER_EXTRA = "USER"
+        const val DESCRIPTION_EXTRA = "DESCRIPTION"
+        const val EXPORT_REQUEST_CODE = 1
+        const val IMPORT_REQUEST_CODE = 2
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_user)
         executor = Executors.newSingleThreadExecutor()
-        // Inicjalizacja biometrycznych promptów
         biometricPrompt = createBiometricPrompt()
         promptInfo = createPromptInfo()
 
@@ -50,21 +56,21 @@ class UserActivity : AppCompatActivity() {
         refresh()
     }
 
-    // Metoda do odświeżania listy notatek
+
     private fun refresh() {
-        var directory = applicationContext.getDir("$USER_NAME_EXTRA", Context.MODE_PRIVATE)
-        var files = File(directory, "data").listFiles()
+        val directory = applicationContext.getDir("$USER_NAME_EXTRA", Context.MODE_PRIVATE)
+        val files = File(directory, "data").listFiles()
         val notesSaved = findViewById<LinearLayout>(R.id.notesSaved)
         notesSaved.removeAllViews()
         var j = 1
         if (files != null) {
             for (i in files) {
-                var button = Button(this)
+                val button = Button(this)
                 button.text = i.name
                 button.id = j
                 val id = button.id
                 notesSaved.addView(button)
-                var but = findViewById<Button>(id)
+                val but = findViewById<Button>(id)
                 but.setOnClickListener {
                     val intent = Intent(this, SecureNoteActivity::class.java)
                     intent.putExtra(USER_EXTRA, USER_NAME_EXTRA)
@@ -76,7 +82,6 @@ class UserActivity : AppCompatActivity() {
         }
     }
 
-    // Metoda obsługująca dodawanie nowej notatki
     private fun onAddButtonClick() {
         val addButton = findViewById<View>(R.id.addButton) as Button
         val descriptionInput = findViewById<View>(R.id.noteDescription) as EditText
@@ -111,9 +116,6 @@ class UserActivity : AppCompatActivity() {
             }
         }
     }
-
-
-    // Metoda obsługująca tworzenie kopii zapasowej notatek
     private fun onBackupButtonClick() {
         val backupButton = findViewById<View>(R.id.backupButton) as Button
         val message = findViewById<View>(R.id.message) as TextView
@@ -123,7 +125,6 @@ class UserActivity : AppCompatActivity() {
         }
     }
 
-    // Metoda tworząca biometryczny prompt
     private fun createBiometricPrompt(): BiometricPrompt {
         return BiometricPrompt(this, executor,
             object : BiometricPrompt.AuthenticationCallback() {
@@ -131,24 +132,20 @@ class UserActivity : AppCompatActivity() {
                     errorCode: Int, errString: CharSequence
                 ) {
                     super.onAuthenticationError(errorCode, errString)
-                    // Obsługa błędu autentykacji
                 }
 
                 override fun onAuthenticationSucceeded(
                     result: BiometricPrompt.AuthenticationResult
                 ) {
                     super.onAuthenticationSucceeded(result)
-                    // Obsługa sukcesu autentykacji
                 }
 
                 override fun onAuthenticationFailed() {
                     super.onAuthenticationFailed()
-                    // Obsługa nieudanej autentykacji
                 }
             })
     }
 
-    // Metoda tworząca informacje o biometrycznym promptcie
     private fun createPromptInfo(): BiometricPrompt.PromptInfo {
         return BiometricPrompt.PromptInfo.Builder()
             .setTitle("Biometric login")
@@ -158,97 +155,192 @@ class UserActivity : AppCompatActivity() {
     }
 
     private fun onExportButtonClick() {
-        val exportButton = findViewById<Button>(R.id.exportButton)
-        val passwordInput = findViewById<EditText>(R.id.passwordInput)
+        exportButton = findViewById<Button>(R.id.exportButton)
+        passwordInput = findViewById<EditText>(R.id.passwordIExport)
 
         exportButton.setOnClickListener {
             val exportPassword = passwordInput.text.toString()
 
             if (exportPassword.isNotEmpty()) {
-                val directory = applicationContext.getExternalFilesDir(null)
-                val file = File(directory, "encrypted_data.txt")
+                val directory = applicationContext.getDir("$USER_NAME_EXTRA", Context.MODE_PRIVATE)
+                val files = File(directory, "data").listFiles()
 
-                if (file.exists()) {
-                    val dataToExport = file.readBytes() // Read data as ByteArray
-                    // Rest of your code for exporting
+                if (files != null && files.isNotEmpty()) {
+                    val notesList = mutableListOf<Map<String, String>>()
+                    val crypto = Crypto()
+
+                    for (file in files) {
+                        try {
+                            val noteBytes = file.readBytes()
+                            val noteContent = crypto.decryptWithPassword(noteBytes, USER_NAME_EXTRA + file.name)
+                            val noteMap = mapOf("title" to file.name, "description" to noteContent)
+                            notesList.add(noteMap)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+
+                    val notesJson = notesList.joinToString(",\n", "[\n", "\n]") {
+                        """
+                    {
+                        "title": "${it["title"]}",
+                        "description": "${it["description"]}"
+                    }
+                    """.trimIndent()
+                    }
+
+                    val encryptedNotes = crypto.encryptWithPassword(notesJson, exportPassword)
+
+                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "application/octet-stream"
+                        putExtra(Intent.EXTRA_TITLE, "notes_export.enc")
+                    }
+
+                    startActivityForResult(intent, EXPORT_REQUEST_CODE)
                 } else {
-                    Toast.makeText(this, "File does not exist", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "No notes to export", Toast.LENGTH_SHORT).show()
                 }
-
-                // Otwórz okno dialogowe wyboru pliku, aby wybrać lokalizację do zapisania zaszyfrowanego pliku
-                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                    putExtra(Intent.EXTRA_TITLE, "encrypted_data.txt")
-                }
-
-                startActivityForResult(intent, SecureNoteActivity.EXPORT_REQUEST_CODE)
             } else {
-                // Obsłuż przypadek pustego hasła
                 Toast.makeText(this, "Please enter the export password", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-
-
-    private fun onImportButtonClick() {
-        val importButton = findViewById<Button>(R.id.importButton)
-        val passwordExport = findViewById<EditText>(R.id.passwordExport)
-
-        importButton.setOnClickListener {
-            val importPassword = passwordExport.text.toString()
-
-            if (importPassword.isNotEmpty()) {
-                // Otwórz okno dialogowe wyboru pliku, aby wybrać zaszyfrowany plik do importu
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                }
-
-                startActivityForResult(intent, SecureNoteActivity.IMPORT_REQUEST_CODE)
-            } else {
-                val message = findViewById<TextView>(R.id.message)
-                message.text = "Please enter the import password"
-            }
-        }
-    }
-
-
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode == Activity.RESULT_OK) {
             when (requestCode) {
-                SecureNoteActivity.EXPORT_REQUEST_CODE -> {
+                EXPORT_REQUEST_CODE -> {
                     data?.data?.let { uri ->
                         val outputStream = contentResolver.openOutputStream(uri)
                         if (outputStream != null) {
-                            if (encryptedData != null) {
+                            val directory = applicationContext.getDir("$USER_NAME_EXTRA", Context.MODE_PRIVATE)
+                            val files = File(directory, "data").listFiles()
+
+                            if (files != null && files.isNotEmpty()) {
+                                val notesList = mutableListOf<Map<String, String>>()
+                                val crypto = Crypto()
+
+                                for (file in files) {
+                                    try {
+                                        val noteBytes = file.readBytes()
+                                        val noteContent = crypto.decryptWithPassword(noteBytes, USER_NAME_EXTRA + file.name)
+                                        val noteMap = mapOf("title" to file.name, "description" to noteContent)
+                                        notesList.add(noteMap)
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                }
+
+                                val notesJson = notesList.joinToString(",\n", "[\n", "\n]") {
+                                    """
+                                {
+                                    "title": "${it["title"]}",
+                                    "description": "${it["description"]}"
+                                }
+                                """.trimIndent()
+                                }
+
+                                val exportPassword = findViewById<EditText>(R.id.passwordIExport).text.toString()
+                                val encryptedNotes = crypto.encryptWithPassword(notesJson, exportPassword)
+
                                 outputStream.use { output ->
-                                    output.write(encryptedData) // Write the encrypted data to the file
+                                    output.write(encryptedNotes)
                                 }
                                 Toast.makeText(this, "Export successful", Toast.LENGTH_SHORT).show()
                             } else {
-                                Toast.makeText(this, "Encrypted data is null", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this, "No notes to export", Toast.LENGTH_SHORT).show()
                             }
                         } else {
                             Toast.makeText(this, "Output stream is null", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
-                // Handle other request codes similarly
+                IMPORT_REQUEST_CODE -> {
+                    data?.data?.let { uri ->
+                        val inputStream = contentResolver.openInputStream(uri)
+                        if (inputStream != null) {
+                            val encryptedNotes = inputStream.readBytes()
+                            val importPassword = findViewById<EditText>(R.id.passwordIExport).text.toString()
+                            val crypto = Crypto()
+
+                            try {
+                                val notesJson = crypto.decryptWithPassword(encryptedNotes, importPassword)
+                                val notesList = parseNotesJson(notesJson)
+
+                                for (note in notesList) {
+                                    val title = note["title"]
+                                    val description = note["description"]
+
+                                    if (title != null && description != null) {
+                                        val directory = applicationContext.getDir("$USER_NAME_EXTRA", Context.MODE_PRIVATE)
+                                        val file = File(File(directory, "data"), title)
+                                        val toWrite = crypto.encryptWithPassword(description, USER_NAME_EXTRA + title)
+                                        file.outputStream().use {
+                                            it.write(toWrite)
+                                        }
+                                    }
+                                }
+                                refresh()
+                                Toast.makeText(this, "Import successful", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(this, "Failed to import notes: ${e.message}", Toast.LENGTH_SHORT).show()
+                                e.printStackTrace()
+                            }
+                        } else {
+                            Toast.makeText(this, "Input stream is null", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
             }
         }
     }
 
+    private fun parseNotesJson(notesJson: String): List<Map<String, String>> {
+        val notesList = mutableListOf<Map<String, String>>()
+        val notesArray = notesJson.trim().removeSurrounding("[", "]").split("},").map { it.trim().plus("}") }
 
-    companion object {
-        var USER_NAME_EXTRA: String? = null
-        const val USER_EXTRA = "USER"
-        const val DESCRIPTION_EXTRA = "DESCRIPTION"
-        const val EXPORT_REQUEST_CODE = 1
-        const val IMPORT_REQUEST_CODE = 2
-        var PASS = false
+        for (note in notesArray) {
+            val title = note.substringAfter("\"title\": \"").substringBefore("\",")
+            val description = note.substringAfter("\"description\": \"").substringBefore("\"")
+            notesList.add(mapOf("title" to title, "description" to description))
+        }
 
+        return notesList
+    }
+
+    private fun onImportButtonClick() {
+        importButton = findViewById<Button>(R.id.importButton)
+
+        importButton.setOnClickListener {
+            val importPassword = findViewById<EditText>(R.id.passwordIExport).text.toString()
+
+            if (importPassword.isNotEmpty()) {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "application/octet-stream"
+                }
+
+                startActivityForResult(intent, IMPORT_REQUEST_CODE)
+            } else {
+                Toast.makeText(this, "Please enter the import password", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 }
+
+
+private fun parseNotesJson(notesJson: String): List<Map<String, String>> {
+        val notesList = mutableListOf<Map<String, String>>()
+        val notesArray = notesJson.trim().removeSurrounding("[", "]").split("},").map { it.trim().plus("}") }
+
+        for (note in notesArray) {
+            val title = note.substringAfter("\"title\": \"").substringBefore("\",")
+            val description = note.substringAfter("\"description\": \"").substringBefore("\"")
+            notesList.add(mapOf("title" to title, "description" to description))
+        }
+
+        return notesList
+    }
+

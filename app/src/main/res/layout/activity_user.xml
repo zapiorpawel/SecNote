@@ -74,7 +74,7 @@
                 android:text="Backup notes" />
 
             <EditText
-                android:id="@+id/passwordInput"
+                android:id="@+id/passwordIExport"
                 android:layout_width="fill_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginLeft="30dp"
@@ -94,7 +94,7 @@
                 android:text="Export notes" />
 
             <EditText
-                android:id="@+id/passwordExport"
+                android:id="@+id/passwordImport"
                 android:layout_width="fill_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginLeft="30dp"
