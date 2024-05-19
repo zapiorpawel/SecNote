@@ -15,6 +15,9 @@ import java.io.File
 import android.app.Activity
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import com.google.gson.Gson
+import android.net.Uri
+import com.google.gson.reflect.TypeToken
 
 class UserActivity : AppCompatActivity() {
     private lateinit var biometricPrompt: BiometricPrompt
@@ -46,8 +49,7 @@ class UserActivity : AppCompatActivity() {
         promptInfo = createPromptInfo()
 
         val intents: Intent = intent
-        val str = intents.getStringExtra(USER_NAME_EXTRA)
-        USER_NAME_EXTRA = str
+        USER_NAME_EXTRA = intents.getStringExtra(USER_NAME_EXTRA)
 
         onAddButtonClick()
         onBackupButtonClick()
@@ -182,20 +184,21 @@ class UserActivity : AppCompatActivity() {
 
                     val notesJson = notesList.joinToString(",\n", "[\n", "\n]") {
                         """
-                    {
-                        "title": "${it["title"]}",
-                        "description": "${it["description"]}"
-                    }
-                    """.trimIndent()
+                {
+                    "title": "${it["title"]}",
+                    "description": "${it["description"]}"
+                }
+                """.trimIndent()
                     }
 
                     val encryptedNotes = crypto.encryptWithPassword(notesJson, exportPassword)
 
                     val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "application/octet-stream"
-                        putExtra(Intent.EXTRA_TITLE, "notes_export.enc")
+                        type = "text/plain"  // Changed type to "text/plain"
+                        putExtra(Intent.EXTRA_TITLE, "notes_export.txt") // Changed file extension to ".txt"
                     }
+
 
                     startActivityForResult(intent, EXPORT_REQUEST_CODE)
                 } else {
@@ -207,6 +210,51 @@ class UserActivity : AppCompatActivity() {
         }
     }
 
+
+    private fun importNotes(importPassword: String, uri: Uri) {
+        val inputStream = contentResolver.openInputStream(uri)
+        if (inputStream != null) {
+            val encryptedData = inputStream.readBytes()
+
+            val crypto = Crypto()
+            try {
+                // Dekodowanie danych
+                val decryptedData = crypto.decryptWithPassword(encryptedData, importPassword)
+
+                // Poprawienie parsowania danych
+                val jsonObject = Gson().fromJson<Map<String, Any>>(decryptedData, Map::class.java)
+                val notesJson = jsonObject["notes"] as String
+                val notesListType = object : TypeToken<List<Map<String, String>>>() {}.type
+                val notesList = Gson().fromJson<List<Map<String, String>>>(notesJson, notesListType)
+
+                // Zapisanie notatek
+                for (note in notesList) {
+                    val title = note["title"]
+                    val description = note["description"]
+
+                    if (title != null && description != null) {
+                        val directory = applicationContext.getDir(USER_NAME_EXTRA, Context.MODE_PRIVATE)
+                        val file = File(File(directory, "data"), title)
+                        val toWrite = crypto.encryptWithPassword(description, USER_NAME_EXTRA + title)
+                        file.outputStream().use {
+                            it.write(toWrite)
+                        }
+                    }
+                }
+                refresh()
+                Toast.makeText(this, "Import successful", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "Failed to import notes: ${e.message}", Toast.LENGTH_SHORT).show()
+                e.printStackTrace()
+            }
+        } else {
+            Toast.makeText(this, "Input stream is null", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+
+
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode == Activity.RESULT_OK) {
@@ -215,7 +263,9 @@ class UserActivity : AppCompatActivity() {
                     data?.data?.let { uri ->
                         val outputStream = contentResolver.openOutputStream(uri)
                         if (outputStream != null) {
-                            val directory = applicationContext.getDir("$USER_NAME_EXTRA", Context.MODE_PRIVATE)
+                            val exportPassword = passwordInput.text.toString()
+                            val directory =
+                                applicationContext.getDir(USER_NAME_EXTRA, Context.MODE_PRIVATE)
                             val files = File(directory, "data").listFiles()
 
                             if (files != null && files.isNotEmpty()) {
@@ -225,8 +275,14 @@ class UserActivity : AppCompatActivity() {
                                 for (file in files) {
                                     try {
                                         val noteBytes = file.readBytes()
-                                        val noteContent = crypto.decryptWithPassword(noteBytes, USER_NAME_EXTRA + file.name)
-                                        val noteMap = mapOf("title" to file.name, "description" to noteContent)
+                                        val noteContent = crypto.decryptWithPassword(
+                                            noteBytes,
+                                            USER_NAME_EXTRA + file.name
+                                        )
+                                        val noteMap = mapOf(
+                                            "title" to file.name,
+                                            "description" to noteContent
+                                        )
                                         notesList.add(noteMap)
                                     } catch (e: Exception) {
                                         e.printStackTrace()
@@ -235,67 +291,43 @@ class UserActivity : AppCompatActivity() {
 
                                 val notesJson = notesList.joinToString(",\n", "[\n", "\n]") {
                                     """
-                                {
-                                    "title": "${it["title"]}",
-                                    "description": "${it["description"]}"
-                                }
-                                """.trimIndent()
+{
+    "title": "${it["title"]}",
+    "description": "${it["description"]}"
+}
+""".trimIndent()
                                 }
 
-                                val exportPassword = findViewById<EditText>(R.id.passwordIExport).text.toString()
-                                val encryptedNotes = crypto.encryptWithPassword(notesJson, exportPassword)
+                                val dataToExport = mapOf("password" to exportPassword, "notes" to notesJson)
+                                val exportDataJson = Gson().toJson(dataToExport)
+                                val encryptedExportData = crypto.encryptWithPassword(exportDataJson, exportPassword)
+
 
                                 outputStream.use { output ->
-                                    output.write(encryptedNotes)
+                                    output.write(encryptedExportData) // Zapisz zaszyfrowane dane eksportowe
                                 }
                                 Toast.makeText(this, "Export successful", Toast.LENGTH_SHORT).show()
                             } else {
-                                Toast.makeText(this, "No notes to export", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this, "No notes to export", Toast.LENGTH_SHORT)
+                                    .show()
                             }
                         } else {
                             Toast.makeText(this, "Output stream is null", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
+
                 IMPORT_REQUEST_CODE -> {
                     data?.data?.let { uri ->
-                        val inputStream = contentResolver.openInputStream(uri)
-                        if (inputStream != null) {
-                            val encryptedNotes = inputStream.readBytes()
-                            val importPassword = findViewById<EditText>(R.id.passwordIExport).text.toString()
-                            val crypto = Crypto()
-
-                            try {
-                                val notesJson = crypto.decryptWithPassword(encryptedNotes, importPassword)
-                                val notesList = parseNotesJson(notesJson)
-
-                                for (note in notesList) {
-                                    val title = note["title"]
-                                    val description = note["description"]
-
-                                    if (title != null && description != null) {
-                                        val directory = applicationContext.getDir("$USER_NAME_EXTRA", Context.MODE_PRIVATE)
-                                        val file = File(File(directory, "data"), title)
-                                        val toWrite = crypto.encryptWithPassword(description, USER_NAME_EXTRA + title)
-                                        file.outputStream().use {
-                                            it.write(toWrite)
-                                        }
-                                    }
-                                }
-                                refresh()
-                                Toast.makeText(this, "Import successful", Toast.LENGTH_SHORT).show()
-                            } catch (e: Exception) {
-                                Toast.makeText(this, "Failed to import notes: ${e.message}", Toast.LENGTH_SHORT).show()
-                                e.printStackTrace()
-                            }
-                        } else {
-                            Toast.makeText(this, "Input stream is null", Toast.LENGTH_SHORT).show()
-                        }
+                        val importPassword = passwordInput.text.toString()
+                        importNotes(importPassword, uri)
                     }
                 }
             }
         }
     }
+
+
 
     private fun parseNotesJson(notesJson: String): List<Map<String, String>> {
         val notesList = mutableListOf<Map<String, String>>()
@@ -314,14 +346,13 @@ class UserActivity : AppCompatActivity() {
         importButton = findViewById<Button>(R.id.importButton)
 
         importButton.setOnClickListener {
-            val importPassword = findViewById<EditText>(R.id.passwordIExport).text.toString()
+            val importPassword = passwordInput.text.toString()
 
             if (importPassword.isNotEmpty()) {
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "application/octet-stream"
+                    type = "text/plain"  // zmieniono typ na "text/plain"
                 }
-
                 startActivityForResult(intent, IMPORT_REQUEST_CODE)
             } else {
                 Toast.makeText(this, "Please enter the import password", Toast.LENGTH_SHORT).show()

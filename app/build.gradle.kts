@@ -39,6 +39,7 @@ android {
 }
 
 dependencies {
+    implementation("com.google.code.gson:gson:2.8.8")
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
     implementation("androidx.security:security-crypto:1.0.0")
     implementation(libs.androidx.core.ktx)
