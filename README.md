@@ -19,14 +19,14 @@ SecNote is a secure and easy-to-use Android application designed for creating, s
  2. Open the project in Android Studio.
  3. Build and run the app on your Android device or emulator.
 
-Usage
+## Usage
 
   -  View Notes: To view a note, select it from the list. You will be prompted to authenticate using your PIN or fingerprint. Upon successful authentication, the note will be decrypted and displayed.
   -  Export Notes: Go to the settings menu and select 'Export Notes'. Enter a password to encrypt the export file. The encrypted file can be transferred and imported on another device.
   -  Import Notes: To import notes, select 'Import Notes' from the settings menu, choose the encrypted file, and enter the password used during export.
   -  Clear Data: To delete all notes and the encryption key, go to the settings menu and select 'Clear Data'. Confirm your action to securely wipe your data.
 
-Security
+## Security
 
   -  Encryption: All notes are encrypted using a secure key stored in the Android Keystore, ensuring that the key cannot be extracted.
   -  Authentication: The app requires PIN or fingerprint authentication for every encryption and decryption operation, adding an extra layer of security.
